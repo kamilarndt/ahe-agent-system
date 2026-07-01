@@ -24,6 +24,43 @@ runtime:
     max_sessions: 8
 
 # ---------------------------------------------------------------------------
+# PERFORMANCE TUNING — Speed, parallelism, caching, streaming
+# profile: fast (default) | quality
+#   fast    = flash everywhere, pro only for architect. 2-3x faster, slightly lower quality
+#   quality = pro for build phases as configured per-agent. Best quality, 2-3x slower
+# ---------------------------------------------------------------------------
+performance:
+  profile: "fast"
+
+  streaming:
+    enabled: true
+    buffer_lines: 10
+
+  parallelism: "aggressive"    # conservative | aggressive | max
+
+  early_bail: true
+
+  smart_skip:
+    enabled: true
+    skip_spec_if_no_new_features: true
+    skip_architect_if_single_file: true
+    skip_pi_test_cov_if_no_logic_change: true
+    skip_pm_if_eng_only: true
+
+  model_warmup:
+    enabled: true
+    keep_alive_seconds: 300
+    prewarm_on_start: ["groq/qwen/qwen3.6-27b", "nvidia/deepseek-ai/deepseek-v4-flash"]
+
+  caching:
+    enabled: true
+    cache_ttl_seconds: 3600
+    cache_dir: "/tmp/ahe/cache"
+    skip_cache_for: ["pi-security", "pi-quality-gate"]
+
+  telemetry_verbosity: "minimal"   # minimal | normal | debug
+
+# ---------------------------------------------------------------------------
 # RISK TIERS — Dynamic Power Scaling (optimized tokenomics)
 # Build with frontier, verify with cheap, trivial with cheapest.
 # ---------------------------------------------------------------------------
@@ -43,8 +80,8 @@ tiers:
   standard:
     label: "T2 — Standard"
     description: "Unit tests, formatting, isolated refactors < 50 lines"
-    model: "nvidia/deepseek-ai/deepseek-v4-flash"  # ← via OmniRoute/NVIDIA
-    fallback: "groq/qwen/qwen3.6-27b"
+    model: "groq/qwen/qwen3-32b"                     # ← via OmniRoute/Groq (3-5x faster than NVIDIA)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
     timeout_sec: 180
     max_turns: 15
     agents: ["opencode-builder"]
@@ -112,10 +149,11 @@ tiers:
 # AGENT TOPOLOGIES
 # ---------------------------------------------------------------------------
 topologies:
-  # PM → Engineering full pipeline
+  # PM → Engineering full pipeline — parallelized for speed
   pm_to_eng:
-    label: "PM → Engineering Pipeline"
+    label: "PM → Engineering Pipeline (parallel)"
     stages:
+      # Phase 1: PM front-end (sequential — discovery feeds strategy feeds PRD)
       - phase: "discover"
         agents: ["opencode-pm-discover"]
         exit_state: "Discovery Report + OST + Experiment Plan"
@@ -129,34 +167,39 @@ topologies:
         agents: ["pi-pm-prd-review"]
         exit_state: "APPROVED | REJECTED"
         gate: true
-      - phase: "spec"
-        agents: ["opencode-spec"]
-        exit_state: "Task Breakdown Ready"
-      - phase: "architect"
-        agents: ["opencode-architect"]
-        exit_state: "ADR + API Contracts"
+
+      # Phase 2: spec + architect in PARALLEL (independent)
+      - phase: "spec-and-architect"
+        agents: ["opencode-spec", "opencode-architect"]
+        fan_out: "parallel"
+        exit_state: "Task Breakdown + ADR Ready"
+
+      # Phase 3: build (sequential — depends on spec+arch)
       - phase: "build"
         agents: ["opencode-builder"]
         exit_state: "Implemented + Tests Passing"
+
+      # Phase 4: Pi verify in PARALLEL (independent checks)
       - phase: "verify"
         agents: ["pi-security", "pi-test-coverage", "pi-quality-gate"]
         fan_out: "parallel"
         exit_state: "ALL GATES PASSED | BLOCKED"
         gate: true
-      - phase: "ship"
-        agents: ["opencode-ship"]
-        exit_state: "Released + Changelog Published"
-      - phase: "gtm"
-        agents: ["opencode-pm-gtm"]
-        exit_state: "Launch Plan Ready"
+
+      # Phase 5: ship + gtm in PARALLEL (independent)
+      - phase: "release"
+        agents: ["opencode-ship", "opencode-pm-gtm"]
+        fan_out: "parallel"
+        exit_state: "Released + Launch Plan Ready"
 
   # Engineering only (no PM front-end)
   eng_only:
-    label: "Engineering Only"
+    label: "Engineering Only (parallel)"
     stages:
-      - phase: "spec"
-        agents: ["opencode-spec"]
-        exit_state: "Task Breakdown Ready"
+      - phase: "spec-and-architect"
+        agents: ["opencode-spec", "opencode-architect"]
+        fan_out: "parallel"
+        exit_state: "Task Breakdown + ADR Ready"
       - phase: "build"
         agents: ["opencode-builder"]
         exit_state: "Implemented + Tests Passing"
@@ -167,9 +210,9 @@ topologies:
       - phase: "ship"
         agents: ["opencode-ship"]
 
-  # Quick bugfix
+  # Quick bugfix — skip spec, skip architect, skip security
   bugfix:
-    label: "Quick Bugfix"
+    label: "Quick Bugfix (fast track)"
     stages:
       - phase: "build"
         agents: ["opencode-builder"]
@@ -177,19 +220,15 @@ topologies:
       - phase: "verify"
         agents: ["pi-quality-gate"]
         gate: true
+        auto_approve: true
 
-  # Pre-release audit
+  # Pre-release audit — all in parallel
   pre_release_audit:
-    label: "Pre-Release Audit"
+    label: "Pre-Release Audit (parallel)"
     stages:
-      - phase: "audit-security"
-        agents: ["pi-security"]
-      - phase: "audit-test-cov"
-        agents: ["pi-test-coverage"]
-      - phase: "audit-observability"
-        agents: ["pi-observability"]
-      - phase: "final-gate"
-        agents: ["pi-quality-gate"]
+      - phase: "audit-all"
+        agents: ["pi-security", "pi-test-coverage", "pi-observability", "pi-quality-gate"]
+        fan_out: "parallel"
         gate: true
 
 # ---------------------------------------------------------------------------
@@ -414,38 +453,38 @@ models:
 agent_models:
   # ── Engineering build agents ──
   opencode-spec:
-    model: "nvidia/deepseek-ai/deepseek-v4-pro"    # via OmniRoute/NVIDIA
-    fallback: "opencode-go/deepseek-v4-pro"
-    reason: "Spec quality gates everything downstream — invest here"
+    model: "groq/qwen/qwen3-32b"                       # via Groq (fast)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-pro"      # via NVIDIA (quality)
+    reason: "Spec quality gates everything downstream — Groq 32B for speed, NVIDIA pro for depth"
 
   opencode-architect:
-    model: "nvidia/deepseek-ai/deepseek-v4-pro"
-    fallback: "opencode-go/deepseek-v4-pro"
-    reason: "Architecture decisions affect the entire system lifecycle"
+    model: "nvidia/deepseek-ai/deepseek-v4-pro"         # quality-critical — architecture is hard
+    fallback: "groq/qwen/qwen3-32b"
+    reason: "Architecture decisions affect entire system — keep pro, fallback to Groq"
 
   opencode-builder:
-    model: "nvidia/deepseek-ai/deepseek-v4-pro"       # T3/T4
-    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"   # T2
-    reason: "Code generation quality directly impacts test pass rate"
+    model: "groq/qwen/qwen3-32b"                        # via Groq (fast)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"     # via NVIDIA (reliable)
+    reason: "Code generation via Groq is 3-5x faster — fallback to NVIDIA flash"
 
   opencode-migration:
-    model: "nvidia/deepseek-ai/deepseek-v4-flash"
-    fallback: "groq/qwen/qwen3.6-27b"
-    reason: "Migration planning is pattern-based — flash is sufficient"
+    model: "groq/qwen/qwen3.6-27b"                      # via Groq (fast)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    reason: "Migration planning is pattern-based — fast is sufficient"
 
   opencode-reviewer:
-    model: "nvidia/deepseek-ai/deepseek-v4-flash"
-    fallback: "opencode-go/kimi-k2.7-code"
-    reason: "Reviewing is pattern-matching — frontier not needed"
+    model: "groq/qwen/qwen3-32b"                        # via Groq (fast)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    reason: "Code review is judgment, not generation — Groq speed is ideal"
 
   opencode-perf:
-    model: "nvidia/deepseek-ai/deepseek-v4-flash"
-    fallback: "groq/qwen/qwen3.6-27b"
-    reason: "Performance audit is source analysis — flash is enough"
+    model: "groq/qwen/qwen3.6-27b"                      # via Groq (fastest)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    reason: "Performance audit is source analysis — fast is sufficient"
 
   opencode-ship:
-    model: "nvidia/deepseek-ai/deepseek-v4-flash"
-    fallback: "groq/qwen/qwen3.6-27b"
+    model: "groq/qwen/qwen3.6-27b"                      # via Groq (fastest)
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
     reason: "Release automation is mechanical — no frontier needed"
 
   # ── PM agents ──

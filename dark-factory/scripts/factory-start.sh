@@ -37,14 +37,24 @@ mkdir -p "$TELEMETRY_DIR" "$LOG_DIR" "$WORKTREE_DIR"
 
 # ---------------------------------------------------------------------------
 # Load tier config from harness.yaml (simple YAML parser)
-# ---------------------------------------------------------------------------
+# Load tier config from harness.yaml — also read performance profile
 parse_yaml_value() {
   local key="$1"
   grep -E "^  $key:" "$HARNESS_YAML" 2>/dev/null | head -1 | sed 's/.*: *"\{0,1\}\(.*\)"\{0,1\}$/\1/' | xargs
 }
 
-MODEL=$(parse_yaml_value "model" < <(awk "/^  $TIER:/{flag=1;next} /^  [a-z]/{flag=0} flag" "$HARNESS_YAML" 2>/dev/null) || echo "opencode-go/deepseek-v4-flash")
+PERF_PROFILE=$(grep "^  profile:" "$HARNESS_YAML" 2>/dev/null | head -1 | sed 's/.*: *//' | xargs || echo "fast")
+PARALLELISM=$(grep "^  parallelism:" "$HARNESS_YAML" 2>/dev/null | head -1 | sed 's/.*: *//' | xargs || echo "aggressive")
+STREAMING=$(grep "enabled:" "$HARNESS_YAML" 2>/dev/null | head -1 | xargs || true)
+
+MODEL=$(parse_yaml_value "model" < <(awk "/^  $TIER:/{flag=1;next} /^  [a-z]/{flag=0} flag" "$HARNESS_YAML" 2>/dev/null) || echo "groq/qwen/qwen3-32b")
 TIMEOUT=$(grep -A10 "  $TIER:" "$HARNESS_YAML" 2>/dev/null | grep "timeout_sec:" | head -1 | sed 's/.*: //' | xargs || echo "180")
+
+# If fast profile: use Groq models for everything except architect
+if [ "$PERF_PROFILE" = "fast" ] && [ "$MODEL" = "nvidia/deepseek-ai/deepseek-v4-pro" ]; then
+  MODEL="groq/qwen/qwen3-32b"
+  echo "  [fast profile] downgraded pro→Groq 32B for speed"
+fi
 
 # ---------------------------------------------------------------------------
 # Team definitions

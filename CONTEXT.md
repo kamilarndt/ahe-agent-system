@@ -85,6 +85,26 @@ Select topology based on what the user needs:
 6. **Bias toward approval.** If code is functionally stable and meets production metrics, ship it. Don't block over subjective style preferences.
 7. **Swap the brain, keep the body.** Build with frontier models, then execute with open-source to save costs.
 
+## Speed Profile
+
+The `harness.yaml` performance section controls how fast the harness runs:
+
+| Setting | Profile: fast | Profile: quality |
+|---------|:---:|:---:|
+| Builder model | Groq 32B (3-5x faster) | NVIDIA Pro (best quality) |
+| Spec model | Groq 32B | NVIDIA Pro |
+| Architect | NVIDIA Pro (always) | NVIDIA Pro |
+| Parallelism | aggressive | conservative |
+| Streaming | enabled | enabled |
+| Smart skip | enabled | disabled |
+| Telemetry | minimal | normal |
+
+Toggle with:
+```yaml
+performance:
+  profile: "fast"    # or "quality"
+```
+
 ## Quick Reference
 
 ```bash
