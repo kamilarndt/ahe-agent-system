@@ -1,0 +1,39 @@
+# ──────────────────────────────────────────────
+# AHE — Universal Harness Justfile
+# Drop-in task runner for any project
+# ──────────────────────────────────────────────
+
+# Project (override with: just --justfile ...)
+ahe_dir := "agents"
+
+# Default: show available commands
+default:
+  @just --list
+
+# List all available agents
+list-agents:
+  @echo "=== AHE Agents ==="
+  @ls {{ahe_dir}}/opencode/ 2>/dev/null || echo "(no agents)"
+  @ls {{ahe_dir}}/pi/ 2>/dev/null || echo "(no pi agents)"
+
+# Run the full pipeline: spec → build → review → verify → ship
+pipeline task="":
+  opencode run --agent opencode-spec "{{task}}"
+  opencode run --agent opencode-builder "Implement the spec"
+  opencode run --agent opencode-reviewer "Review the implementation"
+  opencode run --agent pi-quality-gate "Gate check"
+
+# Run a single agent
+run agent prompt:
+  opencode run --agent opencode-{{agent}} "{{prompt}}"
+
+# Verify with quality gate
+gate:
+  opencode run --agent pi-quality-gate \
+    "Read all recent changes. Produce <fusion-verdict> with APPROVE | BLOCK."
+
+# Setup harness in this project
+setup:
+  @echo "Setting up AHE harness..."
+  @mkdir -p {{ahe_dir}}/opencode {{ahe_dir}}/pi .ahe/logs .ahe/cache .spec
+  @echo "Done. Copy agent .md files to {{ahe_dir}}/opencode/ and {{ahe_dir}}/pi/"

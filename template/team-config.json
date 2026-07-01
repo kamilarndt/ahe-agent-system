@@ -1,0 +1,51 @@
+{
+  "_comment": "AHE — Universal Harness Template. Fill in your project details.",
+  "project": {
+    "name": "${PROJECT_NAME}",
+    "short_name": "${PROJECT_SHORT}"
+  },
+  "agents": {
+    "opencode-spec": {
+      "name": "Spec-Driven Developer",
+      "description": "PRD → task breakdown, spec before code",
+      "builds": true,
+      "exit_state": "Spec + Task Breakdown Ready",
+      "feeds_into": ["opencode-builder"]
+    },
+    "opencode-builder": {
+      "name": "Incremental Builder",
+      "description": "TDD implementation, one slice at a time",
+      "builds": true,
+      "exit_state": "Implemented + Tests Passing",
+      "feeds_into": ["opencode-reviewer"]
+    },
+    "opencode-reviewer": {
+      "name": "Senior Code Reviewer",
+      "description": "5-axis review: correctness, readability, architecture, security, performance",
+      "builds": false,
+      "exit_state": "Review Report Delivered",
+      "feeds_into": ["pi-quality-gate"]
+    },
+    "opencode-ship": {
+      "name": "Release Engineer",
+      "description": "CI/CD, git workflow, changelog",
+      "builds": true,
+      "exit_state": "Released + Changelog Published",
+      "feeds_into": []
+    },
+    "pi-quality-gate": {
+      "name": "Quality Gate",
+      "description": "Final review, go/no-go verdict. Non-collapsible gate.",
+      "builds": false,
+      "exit_state": "APPROVE | REQUEST CHANGES | BLOCK",
+      "is_gate": true,
+      "feeds_into": []
+    }
+  },
+  "gates": {
+    "pi-quality-gate": {
+      "block_on": "BLOCK",
+      "auto_approve_lint_only": true
+    }
+  }
+}

@@ -1,0 +1,57 @@
+# =============================================================================
+# AHE — Universal Harness Template
+# Copy this file to your project root as `harness.yaml` and adjust.
+# =============================================================================
+harness_version: "1.0.0"
+project_name: "${PROJECT_NAME}"
+
+# ---------------------------------------------------------------------------
+# MODELS — configure your provider endpoint
+# ---------------------------------------------------------------------------
+models:
+  default: "groq/qwen/qwen3-32b"
+  cheap: "groq/qwen/qwen3.6-27b"
+  fast: "groq/qwen/qwen3-32b"
+  quality: "${QUALITY_MODEL:-nvidia/deepseek-ai/deepseek-v4-pro}"
+  endpoint: "${ENDPOINT:-http://localhost:20128/v1}"
+
+# ---------------------------------------------------------------------------
+# AGENTS — which specialist agents this project uses
+# ---------------------------------------------------------------------------
+agents:
+  # Set to false to skip agents you don't need
+  opencode-spec: ${USE_SPEC:-true}
+  opencode-builder: ${USE_BUILDER:-true}
+  opencode-reviewer: ${USE_REVIEWER:-true}
+  opencode-pm-prd: ${USE_PRD:-false}
+  opencode-pm-discover: ${USE_DISCOVER:-false}
+  pi-quality-gate: ${USE_QUALITY_GATE:-true}
+  pi-security: ${USE_SECURITY:-false}
+
+# ---------------------------------------------------------------------------
+# TOPOLOGY — how the pipeline runs (adjust phases as needed)
+# ---------------------------------------------------------------------------
+topology:
+  phases:
+    - name: "spec"
+      agent: "opencode-spec"
+      skip_if_no_features: true
+    - name: "build"
+      agent: "opencode-builder"
+    - name: "review"
+      agent: "opencode-reviewer"
+    - name: "verify"
+      agent: "pi-quality-gate"
+      gate: true
+    - name: "ship"
+      agent: "opencode-ship"
+      skip_if_no_deploy: true
+
+# ---------------------------------------------------------------------------
+# PIPELINE — artifact paths
+# ---------------------------------------------------------------------------
+paths:
+  specs: ".spec/"
+  agents: "agents/"
+  logs: ".ahe/logs/"
+  cache: ".ahe/cache/"
