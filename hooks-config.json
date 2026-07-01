@@ -1,0 +1,88 @@
+{
+  "_comment": "AHE Lifecycle Hooks — adapted from cheddarfox/safe-agentic-workflow .claude/hooks-config.json",
+  "hooks": {
+    "PreSessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '=== AHE Agent Team Ready ==='; echo 'ENG agents: opencode-{spec,architect,builder,reviewer,perf,ship,migration}'; echo 'PM agents: opencode-pm-{discover,strategy,prd,execution,gtm,market-research,marketing}'; echo 'Pi (verify): pi-{security,test-coverage,quality-gate,observability,pm-prd-review,pm-strategy-check,pm-market-fit,pm-discovery-audit}'; echo 'Fan-out patterns: pre-merge, pre-build, pm-review'",
+            "description": "Display available agents on session start"
+          },
+          {
+            "type": "command",
+            "command": "if [ -f .hermes.md ]; then echo 'Project context loaded from .hermes.md'; elif [ -f AGENTS.md ]; then echo 'Project context loaded from AGENTS.md'; fi",
+            "description": "Check for project context files"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "delegate_task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '=== Agent Delegation ==='; echo 'Rule: Pi agents NEVER edit code (edit:deny).'; echo 'Rule: OpenCode agents MAY edit code (edit:allow).'; echo 'Rule: Personas do NOT call other personas.'",
+            "description": "Remind delegation rules before spawning sub-agents"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash.*git\\s+push",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "BRANCH=$(git branch --show-current); if [ \"$BRANCH\" = 'main' ] || [ \"$BRANCH\" = 'master' ]; then echo 'BLOCKER: Cannot push directly to '$BRANCH'. Create a feature branch first.'; exit 1; fi; if git status --porcelain | grep -q .; then echo 'BLOCKER: Uncommitted changes. Commit all changes before pushing.'; exit 1; fi",
+            "description": "Block direct push to main/master and uncommitted pushes"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash.*git\\s+commit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'REMINDER: Conventional commit format: type(scope): description. Types: feat|fix|refactor|docs|chore|test'",
+            "description": "Remind about commit message format"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" 2>/dev/null | grep -qE '\\.(py|js|ts|go|rs)$'; then echo '=== Lint Check ==='; python3 -m py_compile \"$FILE\" 2>/dev/null && echo 'Python: OK' || echo 'Python: needs review'; fi",
+            "description": "Quick syntax check after writing code files"
+          }
+        ]
+      }
+    ],
+    "PostAgentComplete": [
+      {
+        "matcher": ".*pi-quality-gate.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"=== QUALITY GATE RESULT ===\"; echo 'If verdict is BLOCK, do not proceed to ship.'; echo 'If verdict is APPROVE, proceed to opencode-ship.'",
+            "description": "Check quality gate result before shipping"
+          }
+        ]
+      },
+      {
+        "matcher": ".*pi-pm-prd-review.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"=== PRD GATE RESULT ===\"; echo 'If PRD is REJECTED, iterate with opencode-pm-prd before engineering handoff.'; echo 'If APPROVED, proceed to opencode-spec.'",
+            "description": "Check PRD review result before engineering"
+          }
+        ]
+      }
+    ]
+  }
+}
