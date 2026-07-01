@@ -137,13 +137,31 @@ tiers:
   pm_review:
     label: "PM — Review"
     description: "PRD quality, strategy consistency, market fit assessment"
-    model: "groq/qwen/qwen3.6-27b"                 # ← via OmniRoute/Groq
+    model: "groq/qwen/qwen3.6-27b"
     fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
     timeout_sec: 300
     max_turns: 25
     agents: ["pi-pm-prd-review", "pi-pm-strategy-check", "pi-pm-market-fit", "pi-pm-discovery-audit"]
     pi_fan_out: "parallel"
     auto_approve: true
+
+  qa:
+    label: "QA — Browser Testing"
+    description: "Agentic UI testing via Playwright CLI — parallel user story validation"
+    model: "groq/qwen/qwen3-32b"
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    timeout_sec: 300
+    max_turns: 30
+    agents: ["opencode-qa-runner", "opencode-qa-viewer"]
+    agent_models:
+      opencode-qa-runner: "groq/qwen/qwen3-32b"
+      opencode-qa-viewer: "groq/qwen/qwen3.6-27b"
+    pi_verify: true
+    pi_agents: ["pi-qa-validator"]
+    pi_fan_out: "parallel"
+    auto_approve: false
+    parallel_stories: true
+    screenshot_dir: ".qa/screenshots/{run_id}"
 
 # ---------------------------------------------------------------------------
 # AGENT TOPOLOGIES
@@ -230,6 +248,22 @@ topologies:
         agents: ["pi-security", "pi-test-coverage", "pi-observability", "pi-quality-gate"]
         fan_out: "parallel"
         gate: true
+
+  # Agentic UI testing — Bowser-inspired 4-layer QA
+  qa_test:
+    label: "QA — Agentic Browser Tests"
+    stages:
+      - phase: "discover-stories"
+        agents: ["opencode-qa-viewer"]
+        exit_state: "Story files discovered"
+      - phase: "run-stories"
+        agents: ["opencode-qa-runner"]
+        fan_out: "parallel"
+        parallel_stories: true
+        exit_state: "All stories executed"
+      - phase: "validate-results"
+        agents: ["pi-qa-validator"]
+        exit_state: "QA Report: PASS | FAIL | NEEDS REVIEW"
 
 # ---------------------------------------------------------------------------
 # LIFECYCLE HOOKS
@@ -564,6 +598,22 @@ agent_models:
     model: "groq/qwen/qwen3.6-27b"
     fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
     reason: "Discovery audit is process checklist — cheap is enough"
+
+  # ── QA testing agents (Bowser-inspired) ──
+  opencode-qa-runner:
+    model: "groq/qwen/qwen3-32b"
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    reason: "Runs Playwright browser tests — needs solid reasoning for DOM interaction"
+
+  opencode-qa-viewer:
+    model: "groq/qwen/qwen3.6-27b"
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    reason: "Reads test results and screenshots — cheap model sufficient"
+
+  pi-qa-validator:
+    model: "groq/qwen/qwen3.6-27b"
+    fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
+    reason: "Validates test logs and screenshot evidence — verification only"
 
 # ---------------------------------------------------------------------------
 # COST BUDGET — Daily limits to prevent runaway spending
