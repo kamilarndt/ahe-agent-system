@@ -35,7 +35,7 @@ def resolve_root(root: Optional[Path]) -> Path:
 
 class WorkflowState:
     """
-    Stan wieloagentowego workflow (ETCLOVG v2).
+    Stan wieloagentowego workflow.
 
     Struktura katalogów:
         .hermes/workflow/<feature>/
@@ -48,9 +48,7 @@ class WorkflowState:
         ├── 07-observability/  observability-audit.md
         ├── 08-fix/            fix-summary.md
         ├── 09-quality/        quality-gate.md
-        ├── state.json         maszyna stanów (mutable)
-        ├── event.log          APPEND-ONLY immutable event log
-        └── evidence/          verification evidence (test output, lint, coverage %)
+        └── state.json         maszyna stanów
     """
 
     PHASES = [
@@ -84,61 +82,18 @@ class WorkflowState:
         ["05-security", "06-coverage", "07-observability"],  # fan-out
     ]
 
-    # ETCLOVG: Verification Criteria per phase (external evidence required)
-    VERIFICATION_CRITERIA = {
-        "01-spec": {
-            "checks": ["prd_complete", "stakeholder_signoff"],
-            "evidence": [],
-        },
-        "02-arch": {
-            "checks": ["adr_accepted", "contracts_reviewed"],
-            "evidence": [],
-        },
-        "03-build": {
-            "checks": ["tests_pass", "no_regressions", "lint_clean", "type_check_ok"],
-            "evidence": ["test_output.txt", "lint_report.txt"],
-        },
-        "04-review": {
-            "checks": ["five_axis_done", "no_blockers"],
-            "evidence": [],
-        },
-        "05-security": {
-            "checks": ["owasp_scanned", "no_critical_vulns"],
-            "evidence": ["security_scan.txt"],
-        },
-        "06-coverage": {
-            "checks": ["coverage_above_threshold", "gaps_documented"],
-            "evidence": ["coverage_report.txt"],
-        },
-        "07-observability": {
-            "checks": ["logging_ok", "metrics_ok", "tracing_ok"],
-            "evidence": [],
-        },
-        "08-fix": {
-            "checks": ["all_critical_fixed", "all_high_fixed", "no_regressions"],
-            "evidence": ["fix_verification.txt"],
-        },
-        "09-quality": {
-            "checks": ["all_gates_passed", "final_verdict"],
-            "evidence": ["quality_report.txt"],
-        },
-    }
-
     def __init__(self, feature: str, root: Optional[Path] = None):
         self.feature = feature.replace(" ", "-").lower()
         project_root = resolve_root(root)
         self.project_root = project_root
         self.root = project_root / ".hermes" / "workflow" / self.feature
         self.state_file = self.root / "state.json"
-        self.event_log = self.root / "event.log"
-        self.evidence_dir = self.root / "evidence"
         self._ensure_dirs()
         self._state = self._load()
 
     def _ensure_dirs(self):
         for phase in self.PHASES:
             (self.root / phase).mkdir(parents=True, exist_ok=True)
-        (self.evidence_dir).mkdir(parents=True, exist_ok=True)
 
     def _load(self) -> dict:
         if self.state_file.exists():
@@ -150,119 +105,10 @@ class WorkflowState:
             "artifacts": {},
             "decisions": {},
             "current_phase": None,
-            # ETCLOVG: policy decisions + verification
-            "verification": {},
-            "policy_decisions": [],
         }
 
     def _save(self):
         self.state_file.write_text(json.dumps(self._state, indent=2, default=str))
-
-    # =================================================================
-    # ETCLOVG: IMMUTABLE EVENT LOG (append-only, never modified/deleted)
-    # =================================================================
-
-    def _log_event(self, intent: str, observation: str, detail: dict = None):
-        """Zapisz zdarzenie do append-only event.log i do state.json (cache)."""
-        event = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "intent": intent,
-            "observation": observation,
-            "detail": detail or {},
-        }
-        # Append-only file — never modified, never deleted
-        with open(self.event_log, "a") as f:
-            f.write(json.dumps(event, default=str) + "\n")
-        # Also cache in state.json for fast query
-        if "event_log" not in self._state:
-            self._state["event_log"] = []
-        self._state["event_log"].append(event)
-        # Keep only last 50 in cache (event.log has everything)
-        if len(self._state["event_log"]) > 50:
-            self._state["event_log"] = self._state["event_log"][-50:]
-        self._save()
-
-    # =================================================================
-    # ETCLOVG: POLICY GATE
-    # =================================================================
-
-    def policy_check(self, intent: str, agent: str, target: str = "") -> dict:
-        """
-        Policy gate — sprawdza czy intencja jest dozwolona przed akcją.
-
-        Returns:
-            {"allowed": bool, "reason": str, "decision": "allow"|"deny"}
-        """
-        # Zawsze dozwolone: Pi agents NEVER write code
-        if intent == "edit_file":
-            # Check if agent has edit permission
-            pi_agents = ["pi-security", "pi-test-coverage", "pi-quality-gate",
-                         "pi-observability", "pi-pm-prd-review", "pi-pm-strategy-check",
-                         "pi-pm-market-fit", "pi-pm-discovery-audit"]
-            if agent in pi_agents:
-                result = {
-                    "allowed": False,
-                    "reason": f"Pi agent '{agent}' has edit: deny — produces reports only",
-                    "decision": "deny",
-                }
-                self._log_event("policy_check", "denied", {
-                    "intent": intent, "agent": agent, "target": target, "reason": result["reason"]
-                })
-                return result
-
-        # Check is not in harness.yaml limited toolsets
-        # (delegate_task handles this downstream)
-
-        result = {
-            "allowed": True,
-            "reason": "Policy gate passed",
-            "decision": "allow",
-        }
-        self._log_event("policy_check", "allowed", {
-            "intent": intent, "agent": agent, "target": target,
-        })
-        return result
-
-    # =================================================================
-    # ETCLOVG: VERIFICATION EVIDENCE
-    # =================================================================
-
-    def record_verification(self, phase: str, check: str, passed: bool,
-                            evidence: str = "", detail: str = ""):
-        """Zapisz wynik weryfikacji z dowodami."""
-        if phase not in self._state["verification"]:
-            self._state["verification"][phase] = []
-        record = {
-            "check": check,
-            "passed": passed,
-            "evidence": evidence,
-            "detail": detail,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        self._state["verification"][phase].append(record)
-        self._log_event("verification", f"{'PASS' if passed else 'FAIL'}: {check}", record)
-        self._save()
-
-    def get_verification_status(self, phase: str) -> dict:
-        """Zwraca status weryfikacji dla fazy — wszystkie checki + PASS/FAIL."""
-        checks = self._state["verification"].get(phase, [])
-        total = len(checks)
-        passed = sum(1 for c in checks if c["passed"])
-        return {
-            "phase": phase,
-            "total_checks": total,
-            "passed": passed,
-            "failed": total - passed,
-            "details": checks,
-            "all_pass": passed == total if total > 0 else False,
-        }
-
-    def save_evidence_file(self, phase: str, filename: str, content: str):
-        """Zapisz plik z dowodem weryfikacji (np. test_output.txt)."""
-        phase_evidence = self.evidence_dir / phase
-        phase_evidence.mkdir(parents=True, exist_ok=True)
-        (phase_evidence / filename).write_text(content)
-        self._log_event("evidence_saved", f"Saved {phase}/{filename}")
 
     # ── Phase lifecycle ──────────────────────────────────────
 

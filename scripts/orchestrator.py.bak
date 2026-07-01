@@ -75,7 +75,7 @@ def cmd_next(args):
 
 
 def cmd_context(args):
-    """Generate delegate_task context for a phase (with policy gate + evidence)."""
+    """Generate delegate_task context for a phase."""
     feature = args[0]
     phase = args[1]
     wf = WorkflowState(feature)
@@ -87,27 +87,12 @@ def cmd_context(args):
         }, indent=2))
         return 1
     
-    # ETCLOVG: policy check before delegation
-    agent_name = _agent_for_phase(phase).get("agent_name", "unknown")
-    policy = wf.policy_check("delegate_task", agent_name, target=phase)
-    if not policy["allowed"]:
-        print(json.dumps({
-            "error": f"Policy BLOCKED delegation to {agent_name} for phase {phase}",
-            "policy": policy,
-        }, indent=2))
-        return 1
-    
     wf.phase_start(phase)
-    wf.phase_append_log(phase, f"Context generated for agent: {agent_name}")
-    
-    # ETCLOVG: verification criteria for this phase
-    vc = WorkflowState.VERIFICATION_CRITERIA.get(phase, {})
     
     context = {
         "feature": feature,
         "phase": phase,
         "instruction": _instruction_for_phase(phase),
-        "agent": agent_name,
         "available_artifacts": {
             dep: wf.get_artifact(dep) or ""
             for dep in WorkflowState.DEPENDENCIES.get(phase, [])
@@ -118,24 +103,14 @@ def cmd_context(args):
         },
         "phase_dir": str(wf.get_phase_dir(phase)),
         "state_file": str(wf.state_file),
-        "event_log": str(wf.event_log),
-        "evidence_dir": str(wf.evidence_dir),
         "project_root": str(Path.cwd()),
-        # ETCLOVG: verification criteria the agent MUST satisfy
-        "verification_criteria": vc.get("checks", []),
-        "required_evidence": vc.get("evidence", []),
-        # ETCLOVG: previous phase verification status
-        "dependencies_verification": {
-            dep: wf.get_verification_status(dep)
-            for dep in WorkflowState.DEPENDENCIES.get(phase, [])
-        },
     }
     
     print(json.dumps(context, indent=2))
 
 
 def cmd_complete(args):
-    """Mark a phase as completed (with output validation)."""
+    """Mark a phase as completed."""
     feature = args[0]
     phase = args[1]
     verdict = args[2] if len(args) > 2 else "pass"
@@ -143,39 +118,13 @@ def cmd_complete(args):
     artifact = args[4] if len(args) > 4 else None
     
     wf = WorkflowState(feature)
-    
-    # ETCLOVG: output validation — check required evidence files exist
-    if verdict == "pass":
-        required_evidence = WorkflowState.VERIFICATION_CRITERIA.get(phase, {}).get("evidence", [])
-        missing_evidence = []
-        for ev_file in required_evidence:
-            ev_path = wf.evidence_dir / phase / ev_file
-            if not ev_path.exists():
-                # Also check phase dir
-                alt_path = wf.get_phase_dir(phase) / ev_file
-                if not alt_path.exists():
-                    missing_evidence.append(ev_file)
-        if missing_evidence:
-            wf.phase_append_log(phase, f"WARNING: missing evidence files: {', '.join(missing_evidence)}")
-            print(json.dumps({
-                "warning": f"Phase {phase} completed without required evidence files: {missing_evidence}",
-                "action": "Proceeding anyway (gate agents will catch issues)",
-            }, indent=2))
-    
     wf.phase_complete(phase, verdict=verdict, agent=agent, artifact=artifact)
-    wf.phase_append_log(phase, f"Completed with verdict: {verdict}")
-    
-    # ETCLOVG: log completion event
-    wf._log_event("phase_complete", f"{phase} → {verdict}", {
-        "agent": agent, "artifact": artifact,
-    })
     
     next_phase = wf.get_next_phase()
     parallel_groups = wf.get_ready_parallel()
     
     print(json.dumps({
         "status": f"{phase} completed with verdict '{verdict}'",
-        "verification_status": wf.get_verification_status(phase),
         "next_sequential": next_phase,
         "parallel_groups": parallel_groups,
     }, indent=2))

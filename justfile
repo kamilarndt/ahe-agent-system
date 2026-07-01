@@ -3,13 +3,11 @@
 # Reusability layer: run browser tests, view results
 # ──────────────────────────────────────────────
 
+stories_dir := ".qa/stories"
+
 # Default: show available commands
 default:
   @just --list
-
-# QA test stories directory
-stories_dir := ".qa/stories"
-screenshots_dir := ".qa/screenshots/{{run_id or "latest"}}"
 
 # List all available QA stories
 list-stories:
@@ -19,7 +17,7 @@ list-stories:
 # QA: run all browser tests with Playwright
 qa-run story="*":
   @echo "Running QA: {{story}}"
-  @mkdir -p .qa/logs .qa/screenshots/$(date +%s)
+  @mkdir -p .qa/logs .qa/screenshots
   @npx playwright install --with-deps chromium 2>/dev/null || true
   @echo "Starting opencode-qa-runner..."
   opencode run --agent opencode-qa-runner \
@@ -31,23 +29,18 @@ qa-validate:
   opencode run --agent pi-qa-validator \
     "Read the latest report from .qa/reports/ and validate screenshots + logs."
 
-# QA: full cycle — discover, run, validate
+# QA: full cycle
 qa-full story="*":
   just qa-run {{story}}
   just qa-validate
 
-# QA: open screenshots from latest run
-qa-screenshots:
-  @open {{screenshots_dir}} 2>/dev/null || echo "No screenshots found in {{screenshots_dir}}"
-
-# QA: write a new story (opens template)
+# QA: write a new user story
 qa-new-story name:
   @cp {{stories_dir}}/TEMPLATE.md {{stories_dir}}/{{name}}.md
-  @echo "Created {{stories_dir}}/{{name}}.md — edit with your test steps"
+  @echo "Created {{stories_dir}}/{{name}}.md"
 
-# Test: verify Playwright CLI is installed
+# Verify QA tools are installed
 check:
   @echo "=== AHE QA Checks ==="
-  @npx playwright --version 2>/dev/null && echo "✓ Playwright installed" || echo "✗ Install: npx playwright install chromium"
-  @which just 2>/dev/null && echo "✓ just installed" || echo "✗ just missing"
-  @ls {{stories_dir}}/*.md 2>/dev/null | wc -l | xargs -I{} echo "✓ {} story files found" || echo "✗ No stories in {{stories_dir}}/"
+  @npx playwright --version 2>/dev/null && echo "Pass: Playwright" || echo "Fail: npx playwright install chromium"
+  @ls {{stories_dir}}/*.md 2>/dev/null | wc -l | xargs -I{} echo "Pass: {} stories" || echo "Info: no stories"

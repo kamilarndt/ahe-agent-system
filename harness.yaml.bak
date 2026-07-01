@@ -76,7 +76,6 @@ tiers:
     pi_verify: false
     auto_approve: true
     git_diff_max_lines: 10
-    verification_evidence: []                     # ETCLOVG: no evidence needed for T1
 
   standard:
     label: "T2 — Standard"
@@ -91,7 +90,6 @@ tiers:
     pi_model: "groq/qwen/qwen3.6-27b"              # ← via OmniRoute/Groq
     auto_approve: true
     git_diff_max_lines: 50
-    verification_evidence: ["test_output.txt"]    # ETCLOVG: must capture test output
 
   full:
     label: "T3 — Full Suite"
@@ -114,11 +112,6 @@ tiers:
     pi_fan_out: "parallel"
     auto_approve: false
     git_diff_max_lines: 200
-    verification_evidence:                        # ETCLOVG: must capture all of these
-      - "test_output.txt"
-      - "lint_report.txt"
-      - "coverage_report.txt"
-      - "security_scan.txt"
 
   critical:
     label: "T4 — Critical"
@@ -140,18 +133,11 @@ tiers:
     auto_approve: false
     human_in_the_loop: true
     require_adr: true
-    verification_evidence:                        # ETCLOVG: full evidence suite
-      - "test_output.txt"
-      - "lint_report.txt"
-      - "coverage_report.txt"
-      - "security_scan.txt"
-      - "fix_verification.txt"
-      - "quality_report.txt"
 
   pm_review:
     label: "PM — Review"
     description: "PRD quality, strategy consistency, market fit assessment"
-    model: "groq/qwen/qwen3.6-27b"                 # ← via OmniRoute/Groq
+    model: "groq/qwen/qwen3.6-27b"
     fallback: "nvidia/deepseek-ai/deepseek-v4-flash"
     timeout_sec: 300
     max_turns: 25
@@ -263,7 +249,7 @@ topologies:
         fan_out: "parallel"
         gate: true
 
-  # Agentic UI testing — Bowser-inspired QA
+  # Agentic UI testing — Bowser-inspired 4-layer QA
   qa_test:
     label: "QA — Agentic Browser Tests"
     stages:
@@ -278,27 +264,6 @@ topologies:
       - phase: "validate-results"
         agents: ["pi-qa-validator"]
         exit_state: "QA Report: PASS | FAIL | NEEDS REVIEW"
-
-# ---------------------------------------------------------------------------
-# POLICY — Intent-based access control for all agent actions
-# Every delegate_task, file write, and external call goes through policy review.
-# ---------------------------------------------------------------------------
-policy:
-  enabled: true
-  strict_mode: false      # true = BLOCK on any policy violation; false = warn + allow
-  
-  gates:
-    edit_file:
-      deny_for: ["pi-*"]  # Pi agents NEVER write code
-      reason: "Pi agents have edit: deny — they produce reports only"
-    delegate_task:
-      require_verification: true   # before delegation, check phase verification status
-      max_concurrent_subagents: 3  # from team-config.json
-    file_write:
-      restrict_to_phase_dir: true  # agents can only write to their phase directory
-      exceptions: ["opencode-builder", "opencode-migration"]  # can write project files
-  
-  intent_log: true        # log every policy check to event.log
 
 # ---------------------------------------------------------------------------
 # LIFECYCLE HOOKS
